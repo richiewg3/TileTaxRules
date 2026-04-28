@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Tileset": {
+      "title": "Tileset",
+      "description": "A tileset and its associated autotile rules.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "enum": ["blob", "transition", "cave"] },
+        "ruleMode": { "type": "number" },
+        "imageUrl": { "type": "string" },
+        "rulesJSON": { "type": "object" },
+        "authorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "type", "imageUrl", "authorId", "createdAt", "updatedAt"]
+    },
+    "LibraryAsset": {
+      "title": "Library Asset",
+      "description": "A general tileset or asset stored in the user vault.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "authorId": { "type": "string" },
+        "metadata": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "imageUrl", "authorId", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/tilesets/{tilesetId}": {
+      "schema": "Tileset",
+      "description": "A collection of user-saved tilesets for the engine."
+    },
+    "/assets/{assetId}": {
+      "schema": "LibraryAsset",
+      "description": "A collection of general raw assets."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "Sprite Fusion Autotile Generator",
+  "description": "Generate autotile rule JSON files for Sprite Fusion by uploading a tileset PNG. Supports Blob, Transition, and Cave tileset types.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
