@@ -93,9 +93,9 @@ export function generateBlob16(tileset: Record<number, TileRule>) {
   // For each of the 24 tile slots
   for (let i = 1; i <= 24; i++) {
     const tile = tileset[i];
-    // Inner corner tiles get null placeholder in 16-rule mode
+    // Inner corner tiles get null placeholder grid in 16-rule mode
     if ([5, 6, 11, 12, 17, 18, 23, 24].includes(i)) {
-      result.push(null);
+      result.push([[null,null,null],[null,null,null],[null,null,null]]);
     } else {
       result.push(buildRuleGrid(
         !!tile.n, !!tile.e, !!tile.s, !!tile.w,
@@ -110,35 +110,13 @@ export function generateBlob16(tileset: Record<number, TileRule>) {
 export function generateCave16(tileset: Record<number, TileRule>) {
   const result: any[] = [];
   // Enumerate all 16 NESW combinations
+  // Bit order: N=8, E=4, S=2, W=1 (matching our working v2 tool)
   for (let i = 0; i < 16; i++) {
-    const n = !!(i & 1);
-    const e = !!(i & 2);
-    const s = !!(i & 4);
-    const w = !!(i & 8);
+    const n = !!(i & 8);
+    const e = !!(i & 4);
+    const s = !!(i & 2);
+    const w = !!(i & 1);
 
-    // Find best matching tile from 9 available
-    let bestTile = 1;
-    let maxMatches = -1;
-
-    for (let t = 1; t <= 9; t++) {
-      const tile = tileset[t];
-      let matches = 0;
-      if (!!tile.n === n) matches++;
-      if (!!tile.e === e) matches++;
-      if (!!tile.s === s) matches++;
-      if (!!tile.w === w) matches++;
-
-      if (matches > maxMatches) {
-        maxMatches = matches;
-        bestTile = t;
-      }
-    }
-    
-    // In Sprite Fusion, a rule is tile-index specific? 
-    // Actually, Sprite Fusion JSON expects a flat list of rules.
-    // Each rule corresponds to a tile index if it's a fixed grid mapping.
-    // v2 tool says: "Each rule is assigned to a tile... rule list is flat."
-    // Let's stick to the v2 algorithm structure.
     result.push(buildRuleGrid(n, e, s, w, null, null, null, null));
   }
   return result;
@@ -212,74 +190,87 @@ export function generateTransition25(tileset: Record<number, TileRule>) {
 }
 
 export function generateBlob47() {
-  const rules: any[] = [];
-  
-  // This is a complex enumeration. In the v2 tool, it was hardcoded or generated.
-  // Enumerate all 256 possible corner configurations for NESW=true? 
-  // No, 47 rules is specifically:
-  // 7 edge-only (no corners)
-  // + combinations where corners matter.
-  
-  // For a 47-rule autotile, we usually enumerate all 256 configurations and map them to the 47 unique ones.
-  // Sprite Fusion uses these 47 as the basis.
-  
-  // Simplified version: 
-  // We'll generate a list of 47 patterns (n,e,s,w + corners)
-  // and for each, find the best tile index from the 24 blob tiles.
-  
-  const patterns: any[] = [];
-  
-  for (let i = 0; i < 256; i++) {
-    const n = !!(i & 1);
-    const e = !!(i & 2);
-    const s = !!(i & 4);
-    const w = !!(i & 8);
-    const tl = !!(i & 16);
-    const tr = !!(i & 32);
-    const bl = !!(i & 64);
-    const br = !!(i & 128);
-    
-    // Apply blob restriction to pattern itself to deduplicate?
-    // In Sprite Fusion, they often just want the 47 unique tiles.
-    // For now, I'll generate the 47 standard blob rule patterns.
-    // (A full list is quite long, I'll use a representative set or the logic provided in prompt)
-  }
-  
-  // RE-READ prompt: "47-rule (edges + corners)"
-  // "Algorithm 2: Blob 47-Rule: Enumerate all valid blob patterns... 16+16+8+7 = 47"
-  
-  // I'll implement a helper that returns the 47 patterns.
-  const blob47Patterns = getBlob47Patterns();
-  return blob47Patterns.map(p => buildRuleGrid(p.n, p.e, p.s, p.w, p.tl, p.tr, p.bl, p.br));
-}
+  const allRules: any[] = [];
+  const tileToRules: Record<number, number[]> = {};
+  for (let t = 1; t <= 24; t++) tileToRules[t] = [];
 
-function getBlob47Patterns() {
-  const patterns: any[] = [];
-  // 1-4 edges combination check
-  // This is a known set for Wang tiles / Blob tiles.
-  // I will generate them by enumerating and filtering with blob constraints.
-  const unique = new Set<string>();
-  for (let i = 0; i < 256; i++) {
-    let n = !!(i & 1);
-    let e = !!(i & 2);
-    let s = !!(i & 4);
-    let w = !!(i & 8);
-    let tl = !!(i & 16);
-    let tr = !!(i & 32);
-    let bl = !!(i & 64);
-    let br = !!(i & 128);
+  // Edge patterns with their relevant corners
+  const patterns = [
+    {n:false,e:false,s:false,w:false, corners:[] as string[]},
+    {n:true, e:false,s:false,w:false, corners:[]},
+    {n:false,e:true, s:false,w:false, corners:[]},
+    {n:false,e:false,s:true, w:false, corners:[]},
+    {n:false,e:false,s:false,w:true,  corners:[]},
+    {n:true, e:false,s:true, w:false, corners:[]},
+    {n:false,e:true, s:false,w:true,  corners:[]},
+    {n:true, e:true, s:false,w:false, corners:['tr']},
+    {n:true, e:false,s:false,w:true,  corners:['tl']},
+    {n:false,e:true, s:true, w:false, corners:['br']},
+    {n:false,e:false,s:true, w:true,  corners:['bl']},
+    {n:true, e:true, s:true, w:false, corners:['tr','br']},
+    {n:true, e:true, s:false,w:true,  corners:['tl','tr']},
+    {n:true, e:false,s:true, w:true,  corners:['tl','bl']},
+    {n:false,e:true, s:true, w:true,  corners:['bl','br']},
+    {n:true, e:true, s:true, w:true,  corners:['tl','tr','bl','br']},
+  ];
 
-    // Apply blob logic: corner only exists if both adjacent edges are true
-    if (!(n && w)) tl = false;
-    if (!(n && e)) tr = false;
-    if (!(s && w)) bl = false;
-    if (!(s && e)) br = false;
+  const ruleData: {grid: any, tile: number}[] = [];
 
-    const key = `${n},${e},${s},${w},${tl},${tr},${bl},${br}`;
-    if (!unique.has(key)) {
-      unique.add(key);
-      patterns.push({n,e,s,w,tl,tr,bl,br});
+  for (const pat of patterns) {
+    const {n, e, s, w, corners} = pat;
+    if (corners.length === 0) {
+      const tile = findBlobTile(n, e, s, w, {});
+      ruleData.push({grid: buildRuleGrid(n, e, s, w, null, null, null, null), tile});
+    } else {
+      const combos = 1 << corners.length;
+      for (let c = 0; c < combos; c++) {
+        const cv: Record<string, boolean> = {};
+        corners.forEach((cn, i) => { cv[cn] = Boolean(c & (1 << i)); });
+        const tile = findBlobTile(n, e, s, w, cv);
+        ruleData.push({
+          grid: buildRuleGrid(n, e, s, w,
+            cv.tl !== undefined ? cv.tl : null,
+            cv.tr !== undefined ? cv.tr : null,
+            cv.bl !== undefined ? cv.bl : null,
+            cv.br !== undefined ? cv.br : null),
+          tile
+        });
+      }
     }
   }
-  return patterns; // This should be exactly 47 patterns
+
+  // Sort rules by tile number for sequential assignment
+  ruleData.sort((a, b) => a.tile - b.tile);
+
+  for (const rd of ruleData) {
+    allRules.push(rd.grid);
+    tileToRules[rd.tile].push(allRules.length);
+  }
+
+  return allRules;
+}
+
+function findBlobTile(n: boolean, e: boolean, s: boolean, w: boolean, corners: Record<string, boolean>): number {
+  let best = 1;
+  let bestScore = -1;
+  for (let t = 1; t <= 24; t++) {
+    const d = BLOB_TILES[t];
+    if (!!d.n !== n || !!d.e !== e || !!d.s !== s || !!d.w !== w) continue;
+    let score = 0;
+    let valid = true;
+    for (const [cn, cv] of Object.entries(corners)) {
+      const tv = d[cn as keyof TileRule] as boolean | null;
+      if (tv === null) { /* tile doesn't specify, ok */ }
+      else if (tv === cv) score += 2;
+      else { valid = false; break; }
+    }
+    if (valid && score > bestScore) { best = t; bestScore = score; }
+  }
+  if (bestScore >= 0) return best;
+  // Fallback: match edges only
+  for (let t = 1; t <= 24; t++) {
+    const d = BLOB_TILES[t];
+    if (!!d.n === n && !!d.e === e && !!d.s === s && !!d.w === w) return t;
+  }
+  return 1;
 }

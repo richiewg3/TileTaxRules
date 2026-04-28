@@ -118,11 +118,6 @@ interface LibraryAsset {
   updatedAt: Timestamp;
 }
 
-// --- Icons / Library Imports ---
-import { 
-  Archive,
-} from 'lucide-react';
-
 // --- Components ---
 
 const Button = ({ children, onClick, variant = 'primary', disabled = false, className = '' }: any) => {
