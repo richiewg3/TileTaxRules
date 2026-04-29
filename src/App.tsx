@@ -17,14 +17,14 @@ import {
   updateDoc,
   where
 } from 'firebase/firestore';
-import { 
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  GoogleAuthProvider, 
-  signOut, 
-  onAuthStateChanged, 
-  User 
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInAnonymously,
+  signOut,
+  onAuthStateChanged,
+  updateProfile,
+  User,
 } from 'firebase/auth';
 import { db, auth } from './lib/firebase';
 import { 
@@ -151,34 +151,12 @@ export default function App() {
   const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
   const [editingTileset, setEditingTileset] = useState<TilesetData | null>(null);
 
-  // Finish redirect OAuth before subscribing so the session is applied and we do not flash the login screen.
   useEffect(() => {
-    let unsubscribe: (() => void) | undefined;
-
-    void (async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result?.user) {
-          setUser(result.user);
-        }
-      } catch (error) {
-        console.error('Google sign-in redirect failed:', error);
-        const code = (error as { code?: string })?.code;
-        if (code === 'auth/unauthorized-domain') {
-          alert(
-            'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add your deployment hostname (e.g. your Vercel URL).'
-          );
-        } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
-          alert('Sign-in could not complete: ' + (error instanceof Error ? error.message : String(error)));
-        }
-      }
-      unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-        setUser(currentUser);
-        setLoading(false);
-      });
-    })();
-
-    return () => unsubscribe?.();
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, []);
 
   // Sync Autotile Tilesets
@@ -221,54 +199,26 @@ export default function App() {
     return () => unsubscribe();
   }, [user, activeModule]);
 
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    try {
-      // Same-window popup keeps the Firebase session on this tab; redirect + new-tab flows often strand the app tab with no user.
-      const result = await signInWithPopup(auth, provider);
-      // Apply the user immediately so the UI does not depend on the auth listener firing
-      // (which can be delayed/blocked by third-party storage partitioning on some browsers).
-      if (result?.user) {
-        setUser(result.user);
-        setLoading(false);
+  const handleEmailSignIn = async (email: string, password: string) => {
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    if (result?.user) setUser(result.user);
+  };
+
+  const handleEmailSignUp = async (email: string, password: string, displayName?: string) => {
+    const result = await createUserWithEmailAndPassword(auth, email, password);
+    if (displayName && result.user) {
+      try {
+        await updateProfile(result.user, { displayName });
+      } catch (e) {
+        console.warn('Could not set displayName:', e);
       }
-    } catch (error: unknown) {
-      const code = (error as { code?: string })?.code;
-      if (
-        code === 'auth/popup-blocked' ||
-        code === 'auth/operation-not-supported-in-this-environment' ||
-        code === 'auth/web-storage-unsupported'
-      ) {
-        try {
-          await signInWithRedirect(auth, provider);
-          return;
-        } catch (redirectErr: unknown) {
-          console.error('Login redirect error:', redirectErr);
-          alert(
-            'Login failed: popup was blocked and redirect could not start. Allow popups for this site or try again.'
-          );
-          return;
-        }
-      }
-      if (
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request' ||
-        code === 'auth/user-cancelled'
-      ) {
-        return;
-      }
-      if (code === 'auth/unauthorized-domain') {
-        alert(
-          'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add ' +
-            (typeof window !== 'undefined' ? window.location.hostname : 'your deployment hostname') +
-            '.'
-        );
-        return;
-      }
-      console.error('Login error:', error);
-      alert('Login failed: ' + (error instanceof Error ? error.message : String(error)));
     }
+    if (result?.user) setUser(result.user);
+  };
+
+  const handleAnonymousSignIn = async () => {
+    const result = await signInAnonymously(auth);
+    if (result?.user) setUser(result.user);
   };
 
   const handleLogout = () => {
@@ -284,12 +234,14 @@ export default function App() {
     );
   }
 
-  const handleSkipAuth = () => {
-    setUser({ uid: 'local-dev', displayName: 'Guest (Local)', email: 'guest@local' } as any);
-  };
-
   if (!user) {
-    return <LandingPage onLogin={handleLogin} onSkip={handleSkipAuth} />;
+    return (
+      <LandingPage
+        onSignIn={handleEmailSignIn}
+        onSignUp={handleEmailSignUp}
+        onGuest={handleAnonymousSignIn}
+      />
+    );
   }
 
   return (
@@ -373,31 +325,193 @@ export default function App() {
 
 // --- Sub-Pages ---
 
-function LandingPage({ onLogin, onSkip }: { onLogin: () => void, onSkip?: () => void }) {
+function LandingPage({
+  onSignIn,
+  onSignUp,
+  onGuest,
+}: {
+  onSignIn: (email: string, password: string) => Promise<void>;
+  onSignUp: (email: string, password: string, displayName?: string) => Promise<void>;
+  onGuest: () => Promise<void>;
+}) {
+  const [mode, setMode] = useState<'signIn' | 'signUp'>('signIn');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'none' | 'auth' | 'guest'>('none');
+
+  const friendlyMessage = (err: unknown) => {
+    const code = (err as { code?: string })?.code;
+    switch (code) {
+      case 'auth/invalid-email':
+        return 'That email address is not valid.';
+      case 'auth/missing-password':
+        return 'Please enter a password.';
+      case 'auth/weak-password':
+        return 'Password must be at least 6 characters.';
+      case 'auth/email-already-in-use':
+        return 'That email is already registered. Try signing in instead.';
+      case 'auth/invalid-credential':
+      case 'auth/wrong-password':
+      case 'auth/user-not-found':
+        return 'Email or password is incorrect.';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please wait a moment and try again.';
+      case 'auth/operation-not-allowed':
+        return 'This sign-in method is not enabled in Firebase Console (Authentication → Sign-in method).';
+      case 'auth/network-request-failed':
+        return 'Network error reaching Firebase. Check your connection and try again.';
+      default:
+        return err instanceof Error ? err.message : String(err);
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!email || !password) {
+      setError('Please enter an email and password.');
+      return;
+    }
+    setBusy('auth');
+    try {
+      if (mode === 'signIn') {
+        await onSignIn(email.trim(), password);
+      } else {
+        await onSignUp(email.trim(), password, displayName.trim() || undefined);
+      }
+    } catch (err) {
+      setError(friendlyMessage(err));
+    } finally {
+      setBusy('none');
+    }
+  };
+
+  const guest = async () => {
+    setError(null);
+    setBusy('guest');
+    try {
+      await onGuest();
+    } catch (err) {
+      setError(friendlyMessage(err));
+    } finally {
+      setBusy('none');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-6 text-center space-y-12">
-      <div className="space-y-4">
-        <div className="inline-flex p-4 bg-zinc-900 rounded-3xl border border-zinc-800 shadow-xl">
-          <Layers className="w-16 h-16 text-blue-500" />
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-6">
+      <div className="w-full max-w-md space-y-10">
+        <div className="space-y-4 text-center">
+          <div className="inline-flex p-4 bg-zinc-900 rounded-3xl border border-zinc-800 shadow-xl">
+            <Layers className="w-16 h-16 text-blue-500" />
+          </div>
+          <h1 className="text-5xl font-bold tracking-tight leading-none">Asset Studio</h1>
+          <p className="text-zinc-500 text-sm max-w-sm mx-auto uppercase tracking-wider font-mono">
+            Game Asset &amp; Autotile Rule Manager
+          </p>
         </div>
-        <h1 className="text-5xl font-bold tracking-tight leading-none">
-          Asset Studio
-        </h1>
-        <p className="text-zinc-500 text-sm max-w-sm mx-auto uppercase tracking-wider font-mono">
-          Game Asset & Autotile Rule Manager
-        </p>
-      </div>
-      
-      <div className="flex flex-col gap-3">
-        <Button onClick={onLogin} className="px-12 py-4 text-lg rounded-xl">
-          <LogIn className="w-5 h-5" />
-          Sign in to Workspace
-        </Button>
-        {onSkip && (
-          <Button variant="ghost" onClick={onSkip} className="px-8 py-3 text-sm">
-            Continue as Guest (Local Only)
+
+        <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-lg shadow-black/20 space-y-5">
+          <div className="grid grid-cols-2 gap-1 p-1 bg-zinc-950 border border-zinc-800 rounded-xl">
+            <button
+              type="button"
+              onClick={() => { setMode('signIn'); setError(null); }}
+              className={`py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                mode === 'signIn' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-200'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('signUp'); setError(null); }}
+              className={`py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                mode === 'signUp' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-500 hover:text-zinc-200'
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+
+          <form onSubmit={submit} className="space-y-4">
+            {mode === 'signUp' && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1">Display Name (optional)</label>
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your Name"
+                  autoComplete="name"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-all text-sm"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                autoComplete="email"
+                required
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-all text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 px-1">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder={mode === 'signUp' ? 'At least 6 characters' : '••••••••'}
+                autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
+                minLength={6}
+                required
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white placeholder-zinc-600 focus:outline-none focus:border-blue-500 transition-all text-sm"
+              />
+            </div>
+
+            {error && (
+              <div className="flex items-start gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <Button disabled={busy !== 'none'} className="w-full px-6 py-3 text-sm rounded-xl">
+              {busy === 'auth' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <LogIn className="w-4 h-4" />
+                  {mode === 'signIn' ? 'Sign in' : 'Create account'}
+                </>
+              )}
+            </Button>
+          </form>
+
+          <div className="flex items-center gap-3 text-[10px] uppercase tracking-widest text-zinc-600">
+            <div className="h-px flex-1 bg-zinc-800" />
+            <span>or</span>
+            <div className="h-px flex-1 bg-zinc-800" />
+          </div>
+
+          <Button
+            variant="secondary"
+            onClick={guest}
+            disabled={busy !== 'none'}
+            className="w-full px-6 py-3 text-sm rounded-xl"
+          >
+            {busy === 'guest' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Continue as Guest'}
           </Button>
-        )}
+          <p className="text-[10px] text-zinc-600 text-center font-mono tracking-wider">
+            Guest sessions are anonymous Firebase users. Your work is saved to the cloud and will persist as long as you stay signed in on this browser.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -498,7 +612,9 @@ function Header({ user, onLogout, onHome }: { user: User, onLogout: () => void, 
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 rounded-full border border-zinc-800">
           <div className="w-2 h-2 rounded-full bg-emerald-500" />
-          <span className="text-[10px] font-mono tracking-wider text-zinc-400">{user.displayName}</span>
+          <span className="text-[10px] font-mono tracking-wider text-zinc-400">
+            {user.displayName || user.email || (user.isAnonymous ? 'Guest' : 'Signed In')}
+          </span>
         </div>
         <Button variant="ghost" onClick={onLogout} title="Sign Out" className="p-2 text-zinc-400">
           <LogOut className="w-4 h-4" />
