@@ -18,8 +18,8 @@ import {
   where
 } from 'firebase/firestore';
 import { 
-  signInWithPopup, 
   signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged, 
@@ -156,6 +156,21 @@ export default function App() {
       setLoading(false);
     });
     return () => unsubscribe();
+  }, []);
+
+  // Complete Google OAuth after signInWithRedirect returns to this origin.
+  useEffect(() => {
+    getRedirectResult(auth).catch((error) => {
+      console.error('Google sign-in redirect failed:', error);
+      const code = (error as { code?: string })?.code;
+      if (code === 'auth/unauthorized-domain') {
+        alert(
+          'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add your deployment hostname (e.g. your Vercel URL).'
+        );
+      } else if (code !== 'auth/popup-closed-by-user') {
+        alert('Sign-in could not complete: ' + (error instanceof Error ? error.message : String(error)));
+      }
+    });
   }, []);
 
   // Sync Autotile Tilesets
