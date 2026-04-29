@@ -18,6 +18,7 @@ import {
   where
 } from 'firebase/firestore';
 import { 
+  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   GoogleAuthProvider, 
@@ -150,27 +151,31 @@ export default function App() {
   const [view, setView] = useState<'dashboard' | 'editor'>('dashboard');
   const [editingTileset, setEditingTileset] = useState<TilesetData | null>(null);
 
+  // Finish redirect OAuth before subscribing so the session is applied and we do not flash the login screen.
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    let unsubscribe: (() => void) | undefined;
 
-  // Complete Google OAuth after signInWithRedirect returns to this origin.
-  useEffect(() => {
-    getRedirectResult(auth).catch((error) => {
-      console.error('Google sign-in redirect failed:', error);
-      const code = (error as { code?: string })?.code;
-      if (code === 'auth/unauthorized-domain') {
-        alert(
-          'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add your deployment hostname (e.g. your Vercel URL).'
-        );
-      } else if (code !== 'auth/popup-closed-by-user') {
-        alert('Sign-in could not complete: ' + (error instanceof Error ? error.message : String(error)));
+    void (async () => {
+      try {
+        await getRedirectResult(auth);
+      } catch (error) {
+        console.error('Google sign-in redirect failed:', error);
+        const code = (error as { code?: string })?.code;
+        if (code === 'auth/unauthorized-domain') {
+          alert(
+            'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add your deployment hostname (e.g. your Vercel URL).'
+          );
+        } else if (code !== 'auth/popup-closed-by-user' && code !== 'auth/cancelled-popup-request') {
+          alert('Sign-in could not complete: ' + (error instanceof Error ? error.message : String(error)));
+        }
       }
-    });
+      unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+        setUser(currentUser);
+        setLoading(false);
+      });
+    })();
+
+    return () => unsubscribe?.();
   }, []);
 
   // Sync Autotile Tilesets
@@ -214,11 +219,27 @@ export default function App() {
   }, [user, activeModule]);
 
   const handleLogin = async () => {
+    const provider = new GoogleAuthProvider();
     try {
-      await signInWithRedirect(auth, new GoogleAuthProvider());
-    } catch (error: any) {
+      // Same-window popup keeps the Firebase session on this tab; redirect + new-tab flows often strand the app tab with no user.
+      await signInWithPopup(auth, provider);
+    } catch (error: unknown) {
+      const code = (error as { code?: string })?.code;
+      if (code === 'auth/popup-blocked') {
+        try {
+          await signInWithRedirect(auth, provider);
+          return;
+        } catch (redirectErr: unknown) {
+          console.error('Login redirect error:', redirectErr);
+          alert(
+            'Login failed: popup was blocked and redirect could not start. Allow popups for this site or try again.'
+          );
+          return;
+        }
+      }
+      if (code === 'auth/popup-closed-by-user') return;
       console.error('Login error:', error);
-      alert('Login failed: ' + error.message);
+      alert('Login failed: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
