@@ -8,29 +8,13 @@ import {
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// When the app is served from a host other than localhost or the default
-// firebaseapp.com helper domain, route the Firebase Auth helper through the
-// app's own origin (see vercel.json rewrites for /__/auth/*). This makes the
-// sign-in iframe/popup load same-origin, which avoids the third-party storage
-// partitioning that breaks the redirect/popup flow on Vercel preview/prod
-// deployments and leaves the user stuck on the login screen.
-function resolveAuthDomain(defaultDomain: string): string {
-  if (typeof window === 'undefined') return defaultDomain;
-  const host = window.location.hostname;
-  if (!host) return defaultDomain;
-  if (host === 'localhost' || host === '127.0.0.1') return defaultDomain;
-  if (host.endsWith('.firebaseapp.com') || host.endsWith('.web.app')) {
-    return defaultDomain;
-  }
-  return host;
-}
-
-const resolvedConfig = {
-  ...firebaseConfig,
-  authDomain: resolveAuthDomain(firebaseConfig.authDomain),
-};
-
-const app = initializeApp(resolvedConfig);
+// IMPORTANT: keep authDomain pointing at the Firebase-hosted helper
+// (<project>.firebaseapp.com). That is the only redirect URI registered with
+// Google's OAuth client by default; rewriting auth traffic through the
+// deployment's own origin causes Google to reject the sign-in with
+// `Error 400: redirect_uri_mismatch` because <vercel-host>/__/auth/handler is
+// not on the OAuth client's authorized redirect URIs list.
+const app = initializeApp(firebaseConfig);
 
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
