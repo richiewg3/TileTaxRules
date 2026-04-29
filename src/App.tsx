@@ -1117,7 +1117,7 @@ function TilesetEditor({ initialData, onBack, userId }: any) {
               {tileMap && tiles.length > 0 && (
                 <Section label="Tile → Rule Mapping">
                   <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-2">
-                    {Object.entries(tileMap).map(([tileNum, ruleNums]) => {
+                    {Object.entries(tileMap as Record<string, number[]>).map(([tileNum, ruleNums]) => {
                       const idx = parseInt(tileNum) - 1;
                       const tileImg = tiles[idx];
                       const hasRules = ruleNums.length > 0;
