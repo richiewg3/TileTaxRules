@@ -5,6 +5,11 @@
 
 export type TilesetType = 'blob' | 'transition' | 'cave';
 
+export interface GeneratorResult {
+  rules: any[];
+  tileMap: Record<number, number[]>; // tile number → array of rule indices (1-based)
+}
+
 export interface TileRule {
   n: boolean | null;
   e: boolean | null;
@@ -88,67 +93,71 @@ export function buildRuleGrid(n: boolean, e: boolean, s: boolean, w: boolean, tl
 }
 
 // Generate Blob 16 rules
-export function generateBlob16(tileset: Record<number, TileRule>) {
-  const result: any[] = [];
-  // For each of the 24 tile slots
+export function generateBlob16(tileset: Record<number, TileRule>): GeneratorResult {
+  const rules: any[] = [];
+  const tileMap: Record<number, number[]> = {};
+  const innerCorners = [5, 6, 11, 12, 17, 18, 23, 24];
   for (let i = 1; i <= 24; i++) {
+    tileMap[i] = [];
     const tile = tileset[i];
-    // Inner corner tiles get null placeholder grid in 16-rule mode
-    if ([5, 6, 11, 12, 17, 18, 23, 24].includes(i)) {
-      result.push([[null,null,null],[null,null,null],[null,null,null]]);
+    if (innerCorners.includes(i)) {
+      rules.push([[null,null,null],[null,null,null],[null,null,null]]);
     } else {
-      result.push(buildRuleGrid(
+      rules.push(buildRuleGrid(
         !!tile.n, !!tile.e, !!tile.s, !!tile.w,
         null, null, null, null
       ));
+      tileMap[i].push(rules.length); // 1-based rule index
     }
   }
-  return result;
+  return { rules, tileMap };
 }
 
 // Generate Cave 16 rules
-export function generateCave16(tileset: Record<number, TileRule>) {
-  const result: any[] = [];
-  // Enumerate all 16 NESW combinations
-  // Bit order: N=8, E=4, S=2, W=1 (matching our working v2 tool)
+export function generateCave16(tileset: Record<number, TileRule>): GeneratorResult {
+  const rules: any[] = [];
+  const tileMap: Record<number, number[]> = {};
+  for (let t = 1; t <= 9; t++) tileMap[t] = [];
+
   for (let i = 0; i < 16; i++) {
     const n = !!(i & 8);
     const e = !!(i & 4);
     const s = !!(i & 2);
     const w = !!(i & 1);
 
-    result.push(buildRuleGrid(n, e, s, w, null, null, null, null));
+    // Find best matching tile
+    let bestTile = 1;
+    let maxMatches = -1;
+    for (let t = 1; t <= 9; t++) {
+      const tile = tileset[t];
+      let matches = 0;
+      if (!!tile.n === n) matches++;
+      if (!!tile.e === e) matches++;
+      if (!!tile.s === s) matches++;
+      if (!!tile.w === w) matches++;
+      if (matches > maxMatches) { maxMatches = matches; bestTile = t; }
+    }
+
+    rules.push(buildRuleGrid(n, e, s, w, null, null, null, null));
+    tileMap[bestTile].push(rules.length);
   }
-  return result;
+  return { rules, tileMap };
 }
 
-export function generateTransition25(tileset: Record<number, TileRule>) {
+export function generateTransition25(tileset: Record<number, TileRule>): GeneratorResult {
   const rules: any[] = [];
+  const tileMap: Record<number, number[]> = {};
+  for (let i = 1; i <= 13; i++) tileMap[i] = [];
   
   // Rules 1-9: Standard tiles (corners=true)
   for (let i = 1; i <= 9; i++) {
     const t = tileset[i];
     rules.push(buildRuleGrid(!!t.n, !!t.e, !!t.s, !!t.w, true, true, true, true));
+    tileMap[i].push(rules.length);
   }
 
   // Rules 10-25: Inner corners
-  // TL is relevant in: NW, NSW, NEW, NESW
-  const patterns = [
-    {n:true, e:false, s:false, w:true, tl:false, tr:true, bl:true, br:true},
-    {n:true, e:false, s:true,  w:true, tl:false, tr:true, bl:true, br:true},
-    {n:true, e:true,  s:false, w:true, tl:false, tr:true, bl:true, br:true},
-    {n:true, e:true,  s:true,  w:true, tl:false, tr:true, bl:true, br:true},
-  ];
-
-  // For each inner corner tile (10, 11, 12, 13)
   // 10=TL, 11=TR, 12=BL, 13=BR
-  
-  // Actually the patterns depend on WHICH corner we are talking about.
-  // TL Patterns: NW, NSW, NEW, NESW
-  // TR Patterns: NE, NEW, NES, NESW
-  // BL Patterns: SW, ESW, NSW, NESW
-  // BR Patterns: ES, ESW, NES, NESW
-  
   const cornerPatterns = [
     // TL (NW, NSW, NEW, NESW)
     [
@@ -181,20 +190,21 @@ export function generateTransition25(tileset: Record<number, TileRule>) {
   ];
 
   for (let i = 0; i < 4; i++) {
+    const tileNum = 10 + i; // tiles 10, 11, 12, 13
     for (const p of cornerPatterns[i]) {
       rules.push(buildRuleGrid(p.n, p.e, p.s, p.w, p.tl, p.tr, p.bl, p.br));
+      tileMap[tileNum].push(rules.length);
     }
   }
 
-  return rules;
+  return { rules, tileMap };
 }
 
-export function generateBlob47() {
+export function generateBlob47(): GeneratorResult {
   const allRules: any[] = [];
-  const tileToRules: Record<number, number[]> = {};
-  for (let t = 1; t <= 24; t++) tileToRules[t] = [];
+  const tileMap: Record<number, number[]> = {};
+  for (let t = 1; t <= 24; t++) tileMap[t] = [];
 
-  // Edge patterns with their relevant corners
   const patterns = [
     {n:false,e:false,s:false,w:false, corners:[] as string[]},
     {n:true, e:false,s:false,w:false, corners:[]},
@@ -239,15 +249,14 @@ export function generateBlob47() {
     }
   }
 
-  // Sort rules by tile number for sequential assignment
   ruleData.sort((a, b) => a.tile - b.tile);
 
   for (const rd of ruleData) {
     allRules.push(rd.grid);
-    tileToRules[rd.tile].push(allRules.length);
+    tileMap[rd.tile].push(allRules.length);
   }
 
-  return allRules;
+  return { rules: allRules, tileMap };
 }
 
 function findBlobTile(n: boolean, e: boolean, s: boolean, w: boolean, corners: Record<string, boolean>): number {

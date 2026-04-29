@@ -52,6 +52,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   TilesetType, 
+  GeneratorResult,
   BLOB_TILES, 
   TRANS_TILES, 
   CAVE_TILES, 
@@ -838,6 +839,7 @@ function TilesetEditor({ initialData, onBack, userId }: any) {
   const [file, setFile] = useState<File | null>(null);
   const [tiles, setTiles] = useState<string[]>([]);
   const [rulesJSON, setRulesJSON] = useState(initialData?.rulesJSON || null);
+  const [tileMap, setTileMap] = useState<Record<number, number[]> | null>(null);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -890,22 +892,19 @@ function TilesetEditor({ initialData, onBack, userId }: any) {
 
   const handleGenerate = () => {
     setGenerating(true);
-    let rules: any[] = [];
     const tileSource = type === 'blob' ? BLOB_TILES : (type === 'transition' ? TRANS_TILES : CAVE_TILES);
+    let result: GeneratorResult;
     
     if (type === 'blob') {
-      rules = ruleMode === 16 ? generateBlob16(tileSource) : generateBlob47();
+      result = ruleMode === 16 ? generateBlob16(tileSource) : generateBlob47();
     } else if (type === 'transition') {
-      rules = generateTransition25(tileSource);
-    } else if (type === 'cave') {
-      rules = generateCave16(tileSource);
+      result = generateTransition25(tileSource);
+    } else {
+      result = generateCave16(tileSource);
     }
 
-    const output = {
-      version: "1.0.0",
-      ruleSets: rules
-    };
-    setRulesJSON(output);
+    setRulesJSON({ version: "1.0.0", ruleSets: result.rules });
+    setTileMap(result.tileMap);
     setGenerating(false);
   };
 
@@ -1088,6 +1087,48 @@ function TilesetEditor({ initialData, onBack, userId }: any) {
                   </Button>
                 </div>
               </Section>
+
+              {tileMap && tiles.length > 0 && (
+                <Section label="Tile → Rule Mapping">
+                  <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-2">
+                    {Object.entries(tileMap).map(([tileNum, ruleNums]) => {
+                      const idx = parseInt(tileNum) - 1;
+                      const tileImg = tiles[idx];
+                      const hasRules = ruleNums.length > 0;
+                      const tileSource = type === 'blob' ? BLOB_TILES : (type === 'transition' ? TRANS_TILES : CAVE_TILES);
+                      const tileDef = tileSource[parseInt(tileNum)];
+                      return (
+                        <div 
+                          key={tileNum} 
+                          className={`flex items-center gap-4 p-3 rounded-xl border transition-all ${hasRules ? 'bg-zinc-950 border-zinc-800 hover:border-blue-500/30' : 'bg-zinc-950/30 border-zinc-800/30 opacity-40'}`}
+                        >
+                          <div className="w-12 h-12 bg-black rounded-lg overflow-hidden flex items-center justify-center flex-shrink-0 border border-zinc-800">
+                            {tileImg && <img src={tileImg} alt="" className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-mono font-bold text-blue-400">#{tileNum}</span>
+                              <span className="text-[10px] text-zinc-500 truncate">{tileDef?.desc || ''}</span>
+                            </div>
+                            {hasRules ? (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {ruleNums.map((r: number) => (
+                                  <span key={r} className="text-[10px] font-mono bg-blue-600/20 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20">
+                                    R{r}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-zinc-600 italic">No rules (placeholder)</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] font-mono text-zinc-600 flex-shrink-0">{ruleNums.length} rule{ruleNums.length !== 1 ? 's' : ''}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Section>
+              )}
 
               <Section label="JSON Preview">
                 <div className="bg-zinc-950 p-6 rounded-3xl border border-zinc-800 overflow-hidden relative">
