@@ -220,8 +220,12 @@ export default function App() {
     );
   }
 
+  const handleSkipAuth = () => {
+    setUser({ uid: 'local-dev', displayName: 'Guest (Local)', email: 'guest@local' } as any);
+  };
+
   if (!user) {
-    return <LandingPage onLogin={handleLogin} />;
+    return <LandingPage onLogin={handleLogin} onSkip={handleSkipAuth} />;
   }
 
   return (
@@ -305,7 +309,7 @@ export default function App() {
 
 // --- Sub-Pages ---
 
-function LandingPage({ onLogin }: { onLogin: () => void }) {
+function LandingPage({ onLogin, onSkip }: { onLogin: () => void, onSkip?: () => void }) {
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center justify-center p-6 text-center space-y-12">
       <div className="space-y-4">
@@ -320,10 +324,17 @@ function LandingPage({ onLogin }: { onLogin: () => void }) {
         </p>
       </div>
       
-      <Button onClick={onLogin} className="px-12 py-4 text-lg rounded-xl">
-        <LogIn className="w-5 h-5" />
-        Sign in to Workspace
-      </Button>
+      <div className="flex flex-col gap-3">
+        <Button onClick={onLogin} className="px-12 py-4 text-lg rounded-xl">
+          <LogIn className="w-5 h-5" />
+          Sign in to Workspace
+        </Button>
+        {onSkip && (
+          <Button variant="ghost" onClick={onSkip} className="px-8 py-3 text-sm">
+            Continue as Guest (Local Only)
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
