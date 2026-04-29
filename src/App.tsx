@@ -157,7 +157,10 @@ export default function App() {
 
     void (async () => {
       try {
-        await getRedirectResult(auth);
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          setUser(result.user);
+        }
       } catch (error) {
         console.error('Google sign-in redirect failed:', error);
         const code = (error as { code?: string })?.code;
@@ -220,12 +223,23 @@ export default function App() {
 
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
     try {
       // Same-window popup keeps the Firebase session on this tab; redirect + new-tab flows often strand the app tab with no user.
-      await signInWithPopup(auth, provider);
+      const result = await signInWithPopup(auth, provider);
+      // Apply the user immediately so the UI does not depend on the auth listener firing
+      // (which can be delayed/blocked by third-party storage partitioning on some browsers).
+      if (result?.user) {
+        setUser(result.user);
+        setLoading(false);
+      }
     } catch (error: unknown) {
       const code = (error as { code?: string })?.code;
-      if (code === 'auth/popup-blocked') {
+      if (
+        code === 'auth/popup-blocked' ||
+        code === 'auth/operation-not-supported-in-this-environment' ||
+        code === 'auth/web-storage-unsupported'
+      ) {
         try {
           await signInWithRedirect(auth, provider);
           return;
@@ -237,7 +251,21 @@ export default function App() {
           return;
         }
       }
-      if (code === 'auth/popup-closed-by-user') return;
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        code === 'auth/user-cancelled'
+      ) {
+        return;
+      }
+      if (code === 'auth/unauthorized-domain') {
+        alert(
+          'This site’s domain is not allowed for Google sign-in. In Firebase Console → Authentication → Settings → Authorized domains, add ' +
+            (typeof window !== 'undefined' ? window.location.hostname : 'your deployment hostname') +
+            '.'
+        );
+        return;
+      }
       console.error('Login error:', error);
       alert('Login failed: ' + (error instanceof Error ? error.message : String(error)));
     }
