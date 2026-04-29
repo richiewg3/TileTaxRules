@@ -147,56 +147,42 @@ export function generateCave16(tileset: Record<number, TileRule>): GeneratorResu
 export function generateTransition25(tileset: Record<number, TileRule>): GeneratorResult {
   const rules: any[] = [];
   const tileMap: Record<number, number[]> = {};
-  for (let i = 1; i <= 13; i++) tileMap[i] = [];
-  
-  // Rules 1-9: Standard tiles (corners=true)
-  for (let i = 1; i <= 9; i++) {
-    const t = tileset[i];
-    rules.push(buildRuleGrid(!!t.n, !!t.e, !!t.s, !!t.w, true, true, true, true));
-    tileMap[i].push(rules.length);
+  for (let i = 1; i <= 18; i++) tileMap[i] = [];
+
+  // Rules 1-9: standard 3x3 tiles
+  for (let t = 1; t <= 9; t++) {
+    const d = tileset[t];
+    const tl = (d.n && d.w) ? true : null;
+    const tr = (d.n && d.e) ? true : null;
+    const bl = (d.s && d.w) ? true : null;
+    const br = (d.s && d.e) ? true : null;
+    rules.push(buildRuleGrid(!!d.n, !!d.e, !!d.s, !!d.w, tl, tr, bl, br));
+    tileMap[t].push(rules.length);
   }
 
-  // Rules 10-25: Inner corners
-  // 10=TL, 11=TR, 12=BL, 13=BR
-  const cornerPatterns = [
-    // TL (NW, NSW, NEW, NESW)
-    [
-      {n:true, e:false, s:false, w:true, tl:false, tr:true, bl:true, br:true},
-      {n:true, e:false, s:true,  w:true, tl:false, tr:true, bl:true, br:true},
-      {n:true, e:true,  s:false, w:true, tl:false, tr:true, bl:true, br:true},
-      {n:true, e:true,  s:true,  w:true, tl:false, tr:true, bl:true, br:true},
-    ],
-    // TR (NE, NEW, NES, NESW)
-    [
-      {n:true, e:true, s:false, w:false, tl:true, tr:false, bl:true, br:true},
-      {n:true, e:true, s:false, w:true,  tl:true, tr:false, bl:true, br:true},
-      {n:true, e:true, s:true,  w:false, tl:true, tr:false, bl:true, br:true},
-      {n:true, e:true, s:true,  w:true,  tl:true, tr:false, bl:true, br:true},
-    ],
-    // BL (SW, ESW, NSW, NESW)
-    [
-      {n:false, e:false, s:true, w:true, tl:true, tr:true, bl:false, br:true},
-      {n:false, e:true,  s:true, w:true, tl:true, tr:true, bl:false, br:true},
-      {n:true,  e:false, s:true, w:true, tl:true, tr:true, bl:false, br:true},
-      {n:true,  e:true,  s:true, w:true, tl:true, tr:true, bl:false, br:true},
-    ],
-    // BR (ES, ESW, NES, NESW)
-    [
-      {n:false, e:true, s:true, w:false, tl:true, tr:true, bl:true, br:false},
-      {n:false, e:true, s:true, w:true,  tl:true, tr:true, bl:true, br:false},
-      {n:true,  e:true, s:true, w:false, tl:true, tr:true, bl:true, br:false},
-      {n:true,  e:true, s:true, w:true,  tl:true, tr:true, bl:true, br:false},
-    ]
-  ];
+  // Rules 10-25: inner corners (4 tiles × 4 rules each)
+  const cornerEdges: Record<string, [string, string]> = {
+    TL: ['n', 'w'], TR: ['n', 'e'], BL: ['s', 'w'], BR: ['s', 'e']
+  };
 
-  for (let i = 0; i < 4; i++) {
-    const tileNum = 10 + i; // tiles 10, 11, 12, 13
-    for (const p of cornerPatterns[i]) {
-      rules.push(buildRuleGrid(p.n, p.e, p.s, p.w, p.tl, p.tr, p.bl, p.br));
-      tileMap[tileNum].push(rules.length);
+  for (let t = 10; t <= 13; t++) {
+    const corner = tileset[t].corner!;
+    const [e1, e2] = cornerEdges[corner];
+    for (let i = 0; i < 16; i++) {
+      const n = !!(i & 8), e = !!(i & 4), s = !!(i & 2), w = !!(i & 1);
+      const edges: Record<string, boolean> = { n, e, s, w };
+      // Both adjacent edges must be true for this corner to be relevant
+      if (!edges[e1] || !edges[e2]) continue;
+      const tl = corner === 'TL' ? false : (n && w) ? true : null;
+      const tr = corner === 'TR' ? false : (n && e) ? true : null;
+      const bl = corner === 'BL' ? false : (s && w) ? true : null;
+      const br = corner === 'BR' ? false : (s && e) ? true : null;
+      rules.push(buildRuleGrid(n, e, s, w, tl, tr, bl, br));
+      tileMap[t].push(rules.length);
     }
   }
 
+  // Tiles 14-18 are fill/extras
   return { rules, tileMap };
 }
 
