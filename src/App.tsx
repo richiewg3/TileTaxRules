@@ -196,7 +196,15 @@ export default function App() {
     return () => unsubscribe();
   }, [user, activeModule]);
 
-  const handleLogin = () => signInWithPopup(auth, new GoogleAuthProvider());
+  const handleLogin = async () => {
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error: any) {
+      console.error('Login error:', error);
+      alert('Login failed: ' + error.message);
+    }
+  };
+
   const handleLogout = () => {
     signOut(auth);
     setActiveModule('portal');
